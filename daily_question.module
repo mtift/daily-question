@@ -1,0 +1,168 @@
+<?php
+
+/**
+ * Implements hook_node_access().
+ */
+function daily_question_node_access($node, $op, $account) {
+  $type = is_string($node) ? $node : $node->type;
+
+  // Only site admins see daily question content
+  if ($type == 'daily_question') {
+    if (isset($account->roles[3]['site admin'])) {
+      return NODE_ACCESS_ALLOW;
+    }
+    return NODE_ACCESS_DENY;
+  }
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function daily_question_block_info() {
+  $blocks['daily_question'] = array(
+    'info' => t('Daily Question'),
+    'cache' => DRUPAL_NO_CACHE,
+  );
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function daily_question_block_view($delta = '') {
+  switch ($delta) {
+    case 'daily_question':
+      $block['subject'] = t("Today's Question");
+      $block['content'] = drupal_get_form('daily_question_contents');
+      break;
+  }
+  return $block;
+}
+
+/**
+ * A module-defined block content function.
+ */
+function daily_question_contents() {
+  global $user;
+
+  // Determine the node ID of today's question
+  $question_id = db_query("SELECT entity_id FROM field_data_field_question_date 
+    WHERE field_question_date_value = DATE(NOW())")->fetchField();
+  $node = node_load($question_id);
+
+  // URL for the "Read More" Link
+  $url = $node->field_read_more['und'][0]['url'];
+
+  // Set the default answer status to unanswered
+  $user_answer_status = 'unanswered';
+
+  // Check if the current user has answered correctly
+  if (isset($node->field_correct_answers['und'])) {
+    $correct_users = $node->field_correct_answers['und'];
+    foreach ($correct_users as $correct_uid) {
+      if ($correct_uid['uid'] == $user->uid) {
+        $user_answer_status = 'correct';
+      }
+    }
+  }
+
+  // Check if the current user has answered incorrectly
+  if (isset($node->field_incorrect_answers['und'])) {
+    $incorrect_users = $node->field_incorrect_answers['und'];
+    foreach ($incorrect_users as $incorrect_uid) {
+      if ($incorrect_uid['uid'] == $user->uid) {
+        $user_answer_status = 'incorrect';
+      }
+    }
+  }
+
+  // Create an array of the possible answers
+  // Answers #1 and #2 are required, but answer #3 is optional
+  $answers = array(
+    1 => $node->field_answer_1['und'][0]['value'],
+    2 => $node->field_answer_2['und'][0]['value'],
+  );
+  if (isset($node->field_answer_3['und'][0]['value'])) {
+    $answers[3] = $node->field_answer_3['und'][0]['value'];
+  }
+
+  // Set a variable to denote the correct answer
+  $correct_answer = $node->field_correct_answer['und'][0]['value']; 
+
+  // Populate the quiz form displayed on the block
+  $form['todays_question'] = array(
+    '#type' => 'radios',
+    '#title' => $node->title,
+    '#options' => NULL,
+    '#required' => FALSE,
+  );
+  // For users who have not answered, show the options
+  if ($user_answer_status == 'unanswered') {
+    $form['todays_question']['#options'] = $answers;
+
+    // Include a submit button for logged-in users
+    if ($user->uid != 0) {
+      $form['user_answer'] = array(
+        '#type' => 'submit',
+        '#value' => t('Answer'),
+      );
+      $form['user_answer']['#submit'][] = 'daily_question_answer';
+
+      // Pass some hidden values to the submit function
+      $form['todays_answer'] = array(
+        '#type' => 'hidden',
+        '#value' => $correct_answer,
+      );
+      $form['todays_question_id'] = array(
+        '#type' => 'hidden',
+        '#value' => $question_id,
+      );
+    }
+    // For anonymous users, add a login link
+    else {
+      $form['login'] = array(
+        '#markup' => l("Login to answer", "user"),
+      );
+    }
+  }
+  // Instead of options, show the answer status if the user has answered
+  elseif ($user_answer_status == 'correct') {
+    $form['user_answer'] = array(
+      '#markup' => t("Congrats! You answered today's question correctly. The correct 
+      answer was <em>@correct</em> (<a href='@url'>read more</a>). Please come back tomorrow!", 
+      array(
+        '@correct' => $answers[$correct_answer],
+        '@url' => $url,
+      )),
+    );
+  }
+  elseif ($user_answer_status == 'incorrect') {
+    $form['user_answer'] = array(
+      '#markup' => t("Sorry, you answered today's question incorrectly. The correct 
+      answer is <em>@correct</em> (<a href='@url'>read more</a>). Please come back tomorrow!",
+      array(
+        '@correct' => $answers[$correct_answer],
+        '@url' => $url,
+      )),
+    );
+  }
+  return $form;
+}
+
+function daily_question_answer($form, &$form_state) {
+  global $user;
+
+  $question_nid = $form['todays_question_id']['#value'];
+  $question_node = node_load($question_nid);
+  // If the user answered correctly, add the user ID to the list of correct answers
+  if ($form_state['values']['todays_question'] == $form['todays_answer']['#value']) {
+    $question_node->field_correct_answers['und'][] = array('uid' => $user->uid);
+    node_save($question_node);
+  }
+  // Otherwise add their user ID to the list of incorrect answers
+  else {
+    $question_node->field_incorrect_answers['und'][] = array('uid' => $user->uid);
+    node_save($question_node);
+  }
+}
+
