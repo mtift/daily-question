@@ -1,4 +1,6 @@
 name = Daily Question
 description = "A Drupal module to display daily quiz questions"
-dependencies[] = date
 core = 7.x
+dependencies[] = date
+dependencies[] = entity
+configure = admin/daily-questions
