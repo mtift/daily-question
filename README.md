@@ -1,4 +1,4 @@
-A custom Drupal module to display daily quiz questions.
+A custom Drupal module to display a daily quiz question.
 
-Development of this project as moved to https://drupal.org/sandbox/mtift/2094041.
+Development of this project has moved to https://drupal.org/sandbox/mtift/2094041.
 
